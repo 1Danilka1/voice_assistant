@@ -1,0 +1,43 @@
+# Secrets and local config
+.env
+.env.local
+*.env
+
+# Database files (personal data + can corrupt across machines)
+*.db
+*.sqlite
+*.sqlite3
+assistant.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Telethon session files (contain auth)
+*.session
+*.session-journal
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Logs
+*.log
+logs/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
