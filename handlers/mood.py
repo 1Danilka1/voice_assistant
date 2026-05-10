@@ -3,7 +3,7 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from storage import database as db
-from keyboards.menus import mood_score_kb, back_home
+from keyboards.menus import mood_score_kb, mood_menu_kb, back_home
 
 router = Router()
 
@@ -61,7 +61,7 @@ async def handle_view_mood(message: Message, uid: int = None):
     if uid is None:
         uid = message.from_user.id
     entries = await db.get_mood_entries(uid, days=7)
-    await message.answer(_mood_chart(entries), reply_markup=back_home())
+    await message.answer(_mood_chart(entries), reply_markup=mood_menu_kb())
 
 
 # ─── Callbacks ────────────────────────────────────────────────────────────────
@@ -78,5 +78,14 @@ async def mood_score_callback(cb: CallbackQuery):
         f"{emoji} Записано: <b>{label} ({score}/5)</b>"
         + (f"\n<i>{text}</i>" if text else ""),
         reply_markup=back_home(),
+    )
+    await cb.answer()
+
+
+@router.callback_query(F.data == "mood:record")
+async def mood_record_callback(cb: CallbackQuery):
+    await cb.message.edit_text(
+        "😊 Как ты себя чувствуешь?\nВыбери оценку:",
+        reply_markup=mood_score_kb(),
     )
     await cb.answer()

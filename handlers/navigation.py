@@ -6,6 +6,7 @@ from keyboards.menus import (
     main_menu, note_list_kb, event_list_kb, contacts_kb, back_home
 )
 from handlers.mood import handle_view_mood
+from services import telegram_sender as sender
 
 router = Router()
 
@@ -23,6 +24,8 @@ PAGE_ALIASES = {
     "mood": "mood",
     "настроение": "mood",
     "дневник": "mood",
+    "settings": "settings",
+    "настройки": "settings",
 }
 
 WELCOME = (
@@ -53,12 +56,35 @@ async def handle_navigation_intent(message: Message, data: dict):
     await _show_page(message, page)
 
 
+def _build_home_text(stats: dict) -> str:
+    lines = ["🏠 <b>Главная</b>\n"]
+    n = stats["notes_count"]
+    lines.append("📝 Заметок нет" if n == 0 else f"📝 Заметок: <b>{n}</b>")
+    evs = stats["events_today"]
+    if not evs:
+        lines.append("📅 Сегодня событий нет")
+    else:
+        lines.append(f"📅 Сегодня ({len(evs)}):")
+        for ev in evs[:3]:
+            lines.append(f"   • {ev['title']} <i>{ev['start_dt'][11:16]}</i>")
+        if len(evs) > 3:
+            lines.append(f"   <i>и ещё {len(evs) - 3}…</i>")
+    mood = stats["last_mood"]
+    if mood is None:
+        lines.append("😊 Настроение не записано")
+    else:
+        score, emoji = mood
+        lines.append(f"😊 Последнее настроение: {emoji} <b>{score}/5</b>")
+    return "\n".join(lines)
+
+
 async def _show_page(message: Message, page: str, uid: int = None):
     if uid is None:
         uid = message.from_user.id
 
     if page == "home" or not page:
-        await message.answer("🏠 Главная", reply_markup=main_menu())
+        stats = await db.get_dashboard_stats(uid)
+        await message.answer(_build_home_text(stats), reply_markup=main_menu())
 
     elif page == "notes":
         notes = await db.get_notes(uid)
@@ -96,8 +122,27 @@ async def _show_page(message: Message, page: str, uid: int = None):
     elif page == "mood":
         await handle_view_mood(message, uid=uid)
 
+    elif page == "settings":
+        configured = await sender.is_configured()
+        authorized = await sender.is_authorized()
+        if not configured:
+            tg_status = "❌ TG_API_ID / TG_API_HASH не заданы"
+        elif authorized:
+            tg_status = "✅ Авторизован — отправка сообщений работает"
+        else:
+            tg_status = "⚠️ Не авторизован — введи /setup"
+        text = (
+            "⚙️ <b>Настройки</b>\n\n"
+            f"<b>Telegram-интеграция:</b>\n{tg_status}\n\n"
+            "Для настройки отправки сообщений от твоего имени:\n"
+            "<i>/setup</i> — начать авторизацию\n"
+            "<i>/setup_status</i> — проверить статус"
+        )
+        await message.answer(text, reply_markup=back_home())
+
     else:
-        await message.answer("🏠 Главная", reply_markup=main_menu())
+        stats = await db.get_dashboard_stats(uid)
+        await message.answer(_build_home_text(stats), reply_markup=main_menu())
 
 
 # ─── Page navigation callbacks ────────────────────────────────────────────────

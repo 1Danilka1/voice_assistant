@@ -265,3 +265,29 @@ async def get_mood_entries(user_id: int, days: int = 7) -> list[dict]:
             (user_id, f"-{days}"),
         )
         return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_dashboard_stats(user_id: int) -> dict:
+    async with aiosqlite.connect(DB) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM notes WHERE user_id = ? AND (is_capsule = 0 OR is_revealed = 1)",
+            (user_id,),
+        )
+        notes_count = (await cur.fetchone())[0]
+        cur = await db.execute(
+            "SELECT title, start_dt FROM events WHERE user_id = ? AND DATE(start_dt) = DATE('now') ORDER BY start_dt",
+            (user_id,),
+        )
+        events_today = [dict(r) for r in await cur.fetchall()]
+        cur = await db.execute(
+            "SELECT mood_score FROM mood_entries WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
+            (user_id,),
+        )
+        row = await cur.fetchone()
+        last_mood = None
+        if row:
+            score = row["mood_score"]
+            emoji_map = {5: "😄", 4: "😊", 3: "😐", 2: "😔", 1: "😞"}
+            last_mood = (score, emoji_map.get(score, "😐"))
+        return {"notes_count": notes_count, "events_today": events_today, "last_mood": last_mood}
