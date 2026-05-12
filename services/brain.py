@@ -127,12 +127,15 @@ async def parse_intent(text: str) -> dict:
 
     response = await _client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1024,
+        max_tokens=4096,
         system=system,
         tools=[_PARSE_TOOL],
         tool_choice={"type": "tool", "name": "parse_command"},
         messages=[{"role": "user", "content": text}],
     )
+
+    if response.stop_reason == "max_tokens":
+        return {"intent": "unknown", "reply": "Голосовое сообщение слишком длинное — попробуй разбить на части."}
 
     for block in response.content:
         if block.type == "tool_use":

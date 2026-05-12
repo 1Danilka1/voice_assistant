@@ -195,7 +195,7 @@ async def send_message_callback(cb: CallbackQuery, bot: Bot):
 
     contacts = await db.get_contacts(uid)
     c = next((x for x in contacts if x["id"] == contact_id), None)
-    if not c or not c.get("telegram_user_id"):
+    if not c or not c.get("telegram_username"):
         await cb.answer("Контакт недоступен", show_alert=True)
         return
 
