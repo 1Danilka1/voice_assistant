@@ -1,20 +1,22 @@
-"""One-time Telethon auth flow: /setup → phone → code → (2FA password)."""
+"""Telethon QR auth flow: /setup → QR code image → scan with phone → (2FA password)."""
 
 import html
+import io
+import qrcode
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message
-from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError
+from aiogram.types import Message, BufferedInputFile
+from telethon.errors import SessionPasswordNeededError
 from services import telegram_sender as sender
 
 router = Router()
 
+_pending: dict[int, Message] = {}
+
 
 class SetupState(StatesGroup):
-    waiting_phone = State()
-    waiting_code = State()
     waiting_2fa = State()
 
 
@@ -22,9 +24,8 @@ class SetupState(StatesGroup):
 async def cmd_setup(message: Message, state: FSMContext):
     if not await sender.is_configured():
         await message.answer(
-            "⚠️ Сначала добавь <b>TG_API_ID</b> и <b>TG_API_HASH</b> в файл .env\n\n"
-            "Получи их на <b>my.telegram.org</b> → Apps → Create new application\n"
-            "Затем перезапусти бота и снова введи /setup"
+            "⚠️ Сначала добавь <b>TG_API_ID</b> и <b>TG_API_HASH</b> в .env\n\n"
+            "Получи их на <b>my.telegram.org</b> → API development tools"
         )
         return
 
@@ -32,60 +33,49 @@ async def cmd_setup(message: Message, state: FSMContext):
         await message.answer("✅ Уже авторизован! Отправка сообщений работает.")
         return
 
-    await state.set_state(SetupState.waiting_phone)
-    await message.answer(
-        "📱 Введи свой номер телефона (с кодом страны):\n"
-        "Например: <code>+48123456789</code>"
-    )
+    uid = message.from_user.id
+    status_msg = await message.answer("⏳ Генерирую QR-код...")
 
+    async def on_done(ok: bool, exc: Exception | None):
+        if ok:
+            await status_msg.edit_text("✅ <b>Авторизован!</b> Отправка сообщений работает.")
+            _pending.pop(uid, None)
+        elif isinstance(exc, SessionPasswordNeededError):
+            await status_msg.edit_text("🔐 Введи пароль двухфакторной аутентификации:")
+            await state.set_state(SetupState.waiting_2fa)
+        elif isinstance(exc, TimeoutError):
+            await status_msg.edit_text("⏰ QR-код истёк. Введи /setup ещё раз.")
+            _pending.pop(uid, None)
+        else:
+            await status_msg.edit_text(f"❌ Ошибка: <code>{html.escape(str(exc))}</code>")
+            _pending.pop(uid, None)
 
-@router.message(SetupState.waiting_phone)
-async def got_phone(message: Message, state: FSMContext):
-    phone = message.text.strip()
-    await state.update_data(phone=phone)
     try:
-        await sender.request_code(phone)
+        url = await sender.do_qr_login(on_done)
     except Exception as e:
-        await message.answer(f"❌ Ошибка: <code>{html.escape(str(e))}</code>")
-        await state.clear()
+        await status_msg.edit_text(f"❌ Ошибка: <code>{html.escape(str(e))}</code>")
         return
 
-    await state.set_state(SetupState.waiting_code)
-    await message.answer(
-        "📩 Код отправлен в Telegram (или SMS).\n"
-        "Введи его сюда:"
+    qr_img = qrcode.make(url)
+    buf = io.BytesIO()
+    qr_img.save(buf, format="PNG")
+    buf.seek(0)
+
+    await status_msg.delete()
+    _pending[uid] = await message.answer_photo(
+        BufferedInputFile(buf.read(), filename="qr.png"),
+        caption=(
+            "📱 Отсканируй QR-код в Telegram на телефоне:\n\n"
+            "<b>Настройки → Устройства → Подключить устройство</b>\n\n"
+            "⏳ Код действителен 90 секунд"
+        ),
     )
-
-
-@router.message(SetupState.waiting_code)
-async def got_code(message: Message, state: FSMContext):
-    code = message.text.strip().replace(" ", "")
-    data = await state.get_data()
-    phone = data["phone"]
-
-    try:
-        await sender.sign_in(phone, code)
-        await state.clear()
-        await message.answer(
-            "✅ <b>Авторизован!</b>\n\n"
-            "Теперь можешь отправлять сообщения любому контакту голосом:\n"
-            "<i>«Отправь Диме что опоздаю на 20 минут»</i>"
-        )
-    except SessionPasswordNeededError:
-        await state.set_state(SetupState.waiting_2fa)
-        await message.answer("🔐 Введи пароль двухфакторной аутентификации:")
-    except PhoneCodeInvalidError:
-        await message.answer("❌ Неверный код. Попробуй ещё раз:")
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: <code>{html.escape(str(e))}</code>")
-        await state.clear()
 
 
 @router.message(SetupState.waiting_2fa)
 async def got_2fa(message: Message, state: FSMContext):
-    password = message.text.strip()
     try:
-        await sender.sign_in_2fa(password)
+        await sender.sign_in_2fa(message.text.strip())
         await state.clear()
         await message.answer("✅ <b>Авторизован!</b> Отправка сообщений работает.")
     except Exception as e:

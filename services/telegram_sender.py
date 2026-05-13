@@ -1,22 +1,26 @@
 """Telethon user client — sends messages as the account owner, not as the bot."""
 
+import asyncio
 import logging
 from telethon import TelegramClient
-from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError
+from telethon.sessions import StringSession
+from telethon.errors import SessionPasswordNeededError
 from config import settings
+from storage import database as db
 
 log = logging.getLogger(__name__)
 
 _client: TelegramClient | None = None
-_phone_code_hash: str | None = None
+_qr_task: asyncio.Task | None = None
 
 
-def _make_client() -> TelegramClient:
-    return TelegramClient(
-        "user_session",
-        settings.TG_API_ID,
-        settings.TG_API_HASH,
-    )
+async def _load_session() -> str:
+    s = await db.get_setting("tg_session")
+    return s or ""
+
+
+def _make_client(session_str: str = "") -> TelegramClient:
+    return TelegramClient(StringSession(session_str), settings.TG_API_ID, settings.TG_API_HASH)
 
 
 async def start():
@@ -24,13 +28,19 @@ async def start():
     if not settings.TG_API_ID or not settings.TG_API_HASH:
         log.warning("TG_API_ID / TG_API_HASH not set — user messaging disabled")
         return
-    _client = _make_client()
+    session_str = await _load_session()
+    _client = _make_client(session_str)
     await _client.connect()
     if await _client.is_user_authorized():
         me = await _client.get_me()
         log.info("Telethon authorized as @%s", me.username or me.id)
     else:
         log.info("Telethon not authorized — use /setup in the bot")
+
+
+async def save_session():
+    if _client:
+        await db.set_setting("tg_session", _client.session.save())
 
 
 async def is_configured() -> bool:
@@ -43,21 +53,31 @@ async def is_authorized() -> bool:
     return await _client.is_user_authorized()
 
 
-async def request_code(phone: str) -> None:
-    global _phone_code_hash
-    result = await _client.send_code_request(phone)
-    _phone_code_hash = result.phone_code_hash
+async def do_qr_login(on_done):
+    """Start QR login. Returns the tg:// URL to encode as a QR code image.
+    on_done(ok, exc) is called in background when the user scans or it times out."""
+    global _qr_task
+    qr = await _client.qr_login()
+
+    async def _wait():
+        try:
+            await asyncio.wait_for(qr.wait(), timeout=90)
+            await save_session()
+            await on_done(True, None)
+        except asyncio.TimeoutError:
+            await on_done(False, TimeoutError("QR expired"))
+        except SessionPasswordNeededError as e:
+            await on_done(False, e)
+        except Exception as e:
+            await on_done(False, e)
+
+    _qr_task = asyncio.create_task(_wait())
+    return qr.url
 
 
-async def sign_in(phone: str, code: str) -> bool:
-    """Returns True on success, raises SessionPasswordNeededError if 2FA required."""
-    await _client.sign_in(phone, code, phone_code_hash=_phone_code_hash)
-    return True
-
-
-async def sign_in_2fa(password: str) -> bool:
+async def sign_in_2fa(password: str):
     await _client.sign_in(password=password)
-    return True
+    await save_session()
 
 
 async def send_message(recipient: str, text: str):

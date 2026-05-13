@@ -47,6 +47,11 @@ async def init_db():
                 mood_text  TEXT    DEFAULT '',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS bot_settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT
+            );
         """)
         await db.commit()
 
@@ -265,6 +270,23 @@ async def get_mood_entries(user_id: int, days: int = 7) -> list[dict]:
             (user_id, f"-{days}"),
         )
         return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_setting(key: str) -> str | None:
+    async with aiosqlite.connect(DB) as db:
+        cur = await db.execute("SELECT value FROM bot_settings WHERE key = ?", (key,))
+        row = await cur.fetchone()
+        return row[0] if row else None
+
+
+async def set_setting(key: str, value: str):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute(
+            "INSERT INTO bot_settings (key, value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        await db.commit()
 
 
 async def get_dashboard_stats(user_id: int) -> dict:
