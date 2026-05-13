@@ -46,15 +46,24 @@ async def handle_contacts_intent(message: Message, bot: Bot, intent: str, data: 
 
     elif intent == "add_contact":
         name = (data.get("title") or data.get("recipient") or "").strip()
+        username = (data.get("telegram_username") or "").strip().lstrip("@")
         if not name:
             await message.answer("👤 Укажи имя контакта.")
             return
-        contact_id = await db.add_contact(uid, name)
-        await message.answer(
-            f"✅ Контакт <b>{name}</b> добавлен.\n\n"
-            f"Попроси {name} написать боту /start — после этого сможешь отправлять сообщения.",
-            reply_markup=back_home(),
-        )
+        contact_id = await db.add_contact(uid, name, telegram_username=username or None)
+        if username:
+            await message.answer(
+                f"✅ Контакт <b>{html.escape(name)}</b> (@{html.escape(username)}) добавлен.\n\n"
+                f"Отправь сообщение голосом: «Отправь {html.escape(name)} привет»",
+                reply_markup=back_home(),
+            )
+        else:
+            await message.answer(
+                f"✅ Контакт <b>{html.escape(name)}</b> добавлен.\n\n"
+                f"Чтобы отправлять сообщения, укажи @username:\n"
+                f"<i>«Добавь контакт {html.escape(name)} @username»</i>",
+                reply_markup=back_home(),
+            )
 
     elif intent == "send_message":
         recipient = (data.get("recipient") or "").strip()
@@ -146,7 +155,7 @@ async def contact_callbacks(cb: CallbackQuery):
             return
         await cb.message.edit_text(
             _fmt_contact(c),
-            reply_markup=contact_actions_kb(contact_id, bool(c.get("telegram_user_id"))),
+            reply_markup=contact_actions_kb(contact_id, bool(c.get("telegram_username"))),
         )
 
     elif action == "msg":

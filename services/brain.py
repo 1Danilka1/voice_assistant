@@ -49,6 +49,10 @@ _PARSE_TOOL = {
             },
             # messaging
             "recipient": {"type": "string", "description": "Имя получателя из контактов"},
+            "telegram_username": {
+                "type": "string",
+                "description": "Telegram @username контакта (без @), если упомянут в команде",
+            },
             "message_text": {
                 "type": "string",
                 "description": "Готовое, полное сообщение для отправки (не фрагмент)",
@@ -112,6 +116,7 @@ _SYSTEM = """\
 • Для end_dt добавляй +1 час к start_dt, если не сказано иначе.
 • Для send_message → message_text должен быть полным, готовым к отправке сообщением
   (вежливым, в естественном стиле). Дополни фрагменты пользователя.
+• Для add_contact: если в команде есть @username, помести его в telegram_username (без @).
 • Для stream_capture распредели каждую мысль по типам: note/event/task/idea.
 • mood_score: 5=отлично, 4=хорошо, 3=нейтрально, 2=плохо, 1=ужасно — угадай из текста.
 • reply — дружелюбный краткий ответ.

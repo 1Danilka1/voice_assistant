@@ -123,16 +123,16 @@ def event_delete_confirm_kb(event_id: int) -> InlineKeyboardMarkup:
 def contacts_kb(contacts: list[dict]) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for c in contacts[:15]:
-        icon = "✅" if c.get("telegram_user_id") else "⏳"
+        icon = "✅" if c.get("telegram_username") else "⏳"
         kb.button(text=f"{icon} {c['name']}", callback_data=f"contact:view:{c['id']}")
     kb.button(text="🏠 Главная", callback_data="page:home")
     kb.adjust(1)
     return kb.as_markup()
 
 
-def contact_actions_kb(contact_id: int, has_user_id: bool) -> InlineKeyboardMarkup:
+def contact_actions_kb(contact_id: int, has_username: bool) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    if has_user_id:
+    if has_username:
         kb.button(text="✉️ Написать",   callback_data=f"contact:msg:{contact_id}")
     kb.button(text="🗑 Удалить",        callback_data=f"contact:del_confirm:{contact_id}")
     kb.button(text="◀ К контактам",    callback_data="page:contacts")
