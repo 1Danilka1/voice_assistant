@@ -205,6 +205,22 @@ async def mark_capsule_revealed(note_id: int):
 async def add_contact(owner_user_id: int, name: str,
                       telegram_user_id: int = None, telegram_username: str = None) -> int:
     async with aiosqlite.connect(DB) as db:
+        # Update existing contact with same name instead of creating a duplicate
+        cur = await db.execute(
+            "SELECT id FROM contacts WHERE owner_user_id = ? AND name = ?",
+            (owner_user_id, name),
+        )
+        row = await cur.fetchone()
+        if row:
+            await db.execute(
+                """UPDATE contacts SET
+                   telegram_user_id = COALESCE(?, telegram_user_id),
+                   telegram_username = COALESCE(?, telegram_username)
+                   WHERE id = ?""",
+                (telegram_user_id, telegram_username, row[0]),
+            )
+            await db.commit()
+            return row[0]
         cur = await db.execute(
             "INSERT INTO contacts (owner_user_id, name, telegram_user_id, telegram_username) VALUES (?,?,?,?)",
             (owner_user_id, name, telegram_user_id, telegram_username),
@@ -226,7 +242,8 @@ async def find_contact(owner_user_id: int, name: str) -> list[dict]:
     async with aiosqlite.connect(DB) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
-            "SELECT * FROM contacts WHERE owner_user_id = ? AND name LIKE ?",
+            """SELECT * FROM contacts WHERE owner_user_id = ? AND name LIKE ?
+               ORDER BY (telegram_username IS NOT NULL) DESC""",
             (owner_user_id, f"%{name}%"),
         )
         return [dict(r) for r in await cur.fetchall()]
